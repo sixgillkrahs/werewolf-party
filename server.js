@@ -36,21 +36,24 @@ app.prepare().then(() => {
   io.on("connection", (socket) => {
     console.log(`User connected: ${socket.id}`);
 
-    socket.on("joinGame", (roomId, username) => {
-      socket.join(roomId);
-      if (!games[roomId]) {
-        games[roomId] = { players: [], state: "lobby", centerCards: [] };
+    socket.on("joinGame", (roomName, username, roomId) => {
+      // Use roomId as the definitive socket room for broadcasting
+      const activeRoom = roomId || roomName;
+
+      socket.join(activeRoom);
+      if (!games[activeRoom]) {
+        games[activeRoom] = { players: [], state: "lobby", centerCards: [], name: roomName };
       }
 
       // Check if user already in room
-      const existingPlayer = games[roomId].players.find(p => p.username === username);
+      const existingPlayer = games[activeRoom].players.find(p => p.username === username);
       if (!existingPlayer) {
-        games[roomId].players.push({ id: socket.id, username, role: null });
+        games[activeRoom].players.push({ id: socket.id, username, role: null });
       } else {
         existingPlayer.id = socket.id;
       }
 
-      io.to(roomId).emit("gameStateUpdate", games[roomId]);
+      io.to(activeRoom).emit("gameStateUpdate", games[activeRoom]);
     });
 
     socket.on("startGame", (roomId) => {

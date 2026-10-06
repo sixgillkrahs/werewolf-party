@@ -19,3 +19,10 @@ model User {
   name      String?
   createdAt DateTime @default(now())
 }
+
+model Room {
+  id        String   @id @default(uuid())
+  name      String
+  password  String
+  createdAt DateTime @default(now())
+}

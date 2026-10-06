@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button, Form, Input, Layout, Typography, Card, Space, List, Tag, Spin } from "antd";
+import { Button, Form, Input, Layout, Typography, Card, Space, List, Tag, Spin, Tabs, message } from "antd";
 import { io, Socket } from "socket.io-client";
 
 const { Header, Content } = Layout;
@@ -14,6 +14,7 @@ interface Player {
 }
 
 interface GameState {
+  name: string;
   state: "lobby" | "night" | "day";
   players: Player[];
   centerCards: string[];
@@ -25,8 +26,10 @@ export default function WerewolfApp() {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [joined, setJoined] = useState(false);
   const [username, setUsername] = useState("");
-  const [room, setRoom] = useState("");
+  const [roomId, setRoomId] = useState("");
   const [isConnected, setIsConnected] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [roomName, setRoomName] = useState("");
 
   useEffect(() => {
     // Initialize socket connection
@@ -53,19 +56,70 @@ export default function WerewolfApp() {
     };
   }, []);
 
-  const onJoin = (values: { username: string; room: string }) => {
-    setUsername(values.username);
-    setRoom(values.room);
-    socket.emit("joinGame", values.room, values.username);
-    setJoined(true);
+  const handleCreateRoom = async (values: { username: string; roomName: string; password: string }) => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/rooms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: values.roomName, password: values.password })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to create room');
+      }
+
+      message.success('Room created successfully!');
+      setUsername(values.username);
+      setRoomId(data.id);
+      setRoomName(data.name);
+      socket.emit("joinGame", data.name, values.username, data.id);
+      setJoined(true);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "An error occurred";
+      message.error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleJoinRoom = async (values: { username: string; roomId: string; password: string }) => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/rooms/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId: values.roomId, password: values.password })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to join room');
+      }
+
+      message.success('Joined room successfully!');
+      setUsername(values.username);
+      setRoomId(data.id);
+      setRoomName(data.name);
+      socket.emit("joinGame", data.name, values.username, data.id);
+      setJoined(true);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "An error occurred";
+      message.error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const startGame = () => {
-    socket.emit("startGame", room);
+    socket.emit("startGame", roomId);
   };
 
   const endNight = () => {
-    socket.emit("endNight", room);
+    socket.emit("endNight", roomId);
   };
 
   if (!joined) {
@@ -73,17 +127,41 @@ export default function WerewolfApp() {
       <Layout className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Card className="w-full max-w-md shadow-lg" title={<Title level={3} className="text-center m-0">One Night Werewolf</Title>}>
            {!isConnected && <div className="text-center mb-4"><Spin /> <Text type="secondary">Connecting to server...</Text></div>}
-          <Form layout="vertical" onFinish={onJoin} disabled={!isConnected}>
-            <Form.Item label="Username" name="username" rules={[{ required: true }]}>
-              <Input placeholder="Enter your name" size="large" />
-            </Form.Item>
-            <Form.Item label="Room Code" name="room" rules={[{ required: true }]}>
-              <Input placeholder="e.g. ALPHA" size="large" style={{ textTransform: 'uppercase' }} />
-            </Form.Item>
-            <Button type="primary" htmlType="submit" size="large" block>
-              Join Game
-            </Button>
-          </Form>
+
+           <Tabs defaultActiveKey="join">
+             <Tabs.TabPane tab="Join Room" key="join">
+                <Form layout="vertical" onFinish={handleJoinRoom} disabled={!isConnected || loading}>
+                  <Form.Item label="Username" name="username" rules={[{ required: true }]}>
+                    <Input placeholder="Enter your name" size="large" />
+                  </Form.Item>
+                  <Form.Item label="Room ID" name="roomId" rules={[{ required: true }]}>
+                    <Input placeholder="Paste Room ID here" size="large" />
+                  </Form.Item>
+                  <Form.Item label="Password" name="password" rules={[{ required: true }]}>
+                    <Input.Password placeholder="Room password" size="large" />
+                  </Form.Item>
+                  <Button type="primary" htmlType="submit" size="large" block loading={loading}>
+                    Join Game
+                  </Button>
+                </Form>
+             </Tabs.TabPane>
+             <Tabs.TabPane tab="Create Room" key="create">
+                 <Form layout="vertical" onFinish={handleCreateRoom} disabled={!isConnected || loading}>
+                  <Form.Item label="Username" name="username" rules={[{ required: true }]}>
+                    <Input placeholder="Enter your name" size="large" />
+                  </Form.Item>
+                  <Form.Item label="Room Name" name="roomName" rules={[{ required: true }]}>
+                    <Input placeholder="e.g. My Cool Room" size="large" />
+                  </Form.Item>
+                  <Form.Item label="Password" name="password" rules={[{ required: true }]}>
+                    <Input.Password placeholder="Set a password" size="large" />
+                  </Form.Item>
+                  <Button type="primary" htmlType="submit" size="large" block loading={loading}>
+                    Create & Join Game
+                  </Button>
+                </Form>
+             </Tabs.TabPane>
+           </Tabs>
         </Card>
       </Layout>
     );
@@ -102,16 +180,23 @@ export default function WerewolfApp() {
   return (
     <Layout className="min-h-screen bg-slate-900 text-white">
       <Header className="bg-slate-900 border-b border-slate-700 flex justify-between items-center px-4 md:px-8">
-        <Title level={4} style={{ color: 'white', margin: 0 }}>Werewolf: Room {room}</Title>
-        <Tag color={gameState.state === "lobby" ? "green" : gameState.state === "night" ? "blue" : "orange"} className="text-sm">
-          {gameState.state.toUpperCase()}
-        </Tag>
+        <Title level={4} style={{ color: 'white', margin: 0 }}>Werewolf: {gameState.name || roomName}</Title>
+        <Space>
+           <Text className="text-slate-400 text-xs hidden md:inline">ID: {roomId}</Text>
+           <Tag color={gameState.state === "lobby" ? "green" : gameState.state === "night" ? "blue" : "orange"} className="text-sm m-0">
+             {gameState.state.toUpperCase()}
+           </Tag>
+        </Space>
       </Header>
 
       <Content className="p-4 md:p-8 max-w-4xl mx-auto w-full">
         {gameState.state === "lobby" && (
           <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 text-center">
             <Title level={2} style={{ color: 'white' }}>Lobby</Title>
+            <div className="bg-slate-900 p-3 rounded-lg border border-slate-700 mb-6 inline-block">
+               <Text className="text-slate-400 block text-xs mb-1">Share this Room ID with friends:</Text>
+               <Text copyable style={{ color: 'white' }} className="font-mono text-lg">{roomId}</Text>
+            </div>
             <Text className="text-slate-300 block mb-6">Waiting for players...</Text>
 
             <List
